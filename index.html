@@ -88,10 +88,7 @@
   </div>
 
   <script>
-    const API_KEY = "cf5e995ca4e04a2e9980c49b1683593b";
-    const CREATE_API_BASE = "https://manager.trafficso1.com/api/cong-khai/tao-lien-ket";
-
-    // Link file đích sau khi vượt link Traffic so1 xong và quay lại ?step=nhanfile
+    // Đổi thành link file đích sau khi vượt link Traffic so1 xong và xác nhận IP ở bước nhận file
     const FILE_DOWNLOAD_URL = "https://example.com/file-cua-ban.zip";
     const REDIRECT_SECONDS = 3;
     const USED_IP_STORAGE_KEY = "trafficso1_used_ips_v1";
@@ -160,7 +157,6 @@
         return "";
       }
       if (payload && typeof payload === "object") {
-        // Ưu tiên các khóa chứa link rút gọn / link nhiệm vụ trước, bỏ qua "url" nếu nó là link gốc
         const shortKeys = [
           "short_url", "shortenedUrl", "short_link", "shortLink",
           "traffic_url", "trafficUrl", "task_url", "taskUrl",
@@ -255,34 +251,33 @@
           return;
         }
 
-        statusText.textContent = "IP hợp lệ — Đang gọi API tạo link Traffic so1...";
+        statusText.textContent = "IP hợp lệ — Đang tạo link vượt link Traffic so1...";
         statusText.className = "status-ok";
 
         const receiveFileUrl = `${window.location.origin}${window.location.pathname}?step=nhanfile&ip=${encodeURIComponent(ip)}&ts=${Date.now()}`;
-        const apiUrl = `${CREATE_API_BASE}?apikey=${encodeURIComponent(API_KEY)}&url=${encodeURIComponent(receiveFileUrl)}`;
+        const proxyUrl = `/api/create-link?url=${encodeURIComponent(receiveFileUrl)}`;
 
-        const res = await fetch(apiUrl, { cache: "no-store" });
-        const rawText = await res.text();
+        const res = await fetch(proxyUrl, { cache: "no-store" });
+        const payload = await res.json();
 
-        let parsed;
-        try {
-          parsed = JSON.parse(rawText);
-        } catch (_) {
-          parsed = rawText;
+        if (!res.ok || !payload.ok) {
+          throw new Error(payload.error || `HTTP ${res.status}`);
         }
 
-        const trafficSo1Link = extractTrafficLink(parsed, receiveFileUrl);
+        const candidateSource = payload.data !== undefined ? payload.data : payload.raw;
+        const trafficSo1Link = extractTrafficLink(candidateSource, receiveFileUrl);
+
         if (!trafficSo1Link) {
-          statusText.textContent = `Chưa lấy được link vượt link (HTTP ${res.status})`;
+          statusText.textContent = `Chưa lấy được link vượt link (HTTP ${payload.status || res.status})`;
           statusText.className = "status-err";
-          detailText.textContent = rawText
-            ? `Phản hồi từ API: ${rawText.slice(0, 260)}`
-            : "API không trả về link vượt link hoặc bị chặn CORS.";
+          detailText.textContent = payload.raw
+            ? `Phản hồi từ API: ${String(payload.raw).slice(0, 260)}`
+            : "API không trả về link vượt link.";
           return;
         }
 
         saveUsedIp(ip);
-        detailText.textContent = "Đã tạo link vượt link. Đang chuyển hướng để vượt link...";
+        detailText.textContent = "Đã tạo link Traffic so1. Đang chuyển hướng để vượt link...";
         manualLink.href = trafficSo1Link;
         manualLink.textContent = trafficSo1Link;
         manualLink.style.display = "block";
@@ -291,7 +286,7 @@
       } catch (err) {
         statusText.textContent = "Lỗi gọi API tạo link";
         statusText.className = "status-err";
-        detailText.textContent = `${err.message || "Lỗi không xác định"} (Nếu bị chặn CORS thì cần gọi API qua server/backend).`;
+        detailText.textContent = err.message || "Lỗi không xác định.";
       }
     }
 
