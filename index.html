@@ -91,7 +91,7 @@
     const API_KEY = "cf5e995ca4e04a2e9980c49b1683593b";
     const CREATE_API_BASE = "https://manager.trafficso1.com/api/cong-khai/tao-lien-ket";
 
-    // Đổi thành link file đích sau khi vượt link xong và xác nhận IP ở bước nhận file
+    // Link file đích sau khi vượt link Traffic so1 xong và quay lại ?step=nhanfile
     const FILE_DOWNLOAD_URL = "https://example.com/file-cua-ban.zip";
     const REDIRECT_SECONDS = 3;
     const USED_IP_STORAGE_KEY = "trafficso1_used_ips_v1";
@@ -139,30 +139,41 @@
       return "";
     }
 
-    function extractCreatedUrl(payload) {
-      if (typeof payload === "string" && /^https?:\/\//i.test(payload.trim())) {
+    function isValidShortLink(candidate, forbiddenUrl) {
+      if (typeof candidate !== "string") return false;
+      const u = candidate.trim();
+      if (!/^https?:\/\//i.test(u)) return false;
+      if (forbiddenUrl && u === forbiddenUrl) return false;
+      if (u.includes("step=nhanfile")) return false;
+      return true;
+    }
+
+    function extractTrafficLink(payload, forbiddenUrl) {
+      if (isValidShortLink(payload, forbiddenUrl)) {
         return payload.trim();
       }
       if (Array.isArray(payload)) {
         for (const item of payload) {
-          const found = extractCreatedUrl(item);
+          const found = extractTrafficLink(item, forbiddenUrl);
           if (found) return found;
         }
         return "";
       }
       if (payload && typeof payload === "object") {
-        const priorityKeys = [
+        // Ưu tiên các khóa chứa link rút gọn / link nhiệm vụ trước, bỏ qua "url" nếu nó là link gốc
+        const shortKeys = [
           "short_url", "shortenedUrl", "short_link", "shortLink",
-          "gtraffic", "task_url", "taskUrl", "url", "link", "data", "result"
+          "traffic_url", "trafficUrl", "task_url", "taskUrl",
+          "link", "data", "result", "url"
         ];
-        for (const k of priorityKeys) {
+        for (const k of shortKeys) {
           if (payload[k] !== undefined) {
-            const found = extractCreatedUrl(payload[k]);
+            const found = extractTrafficLink(payload[k], forbiddenUrl);
             if (found) return found;
           }
         }
         for (const val of Object.values(payload)) {
-          const found = extractCreatedUrl(val);
+          const found = extractTrafficLink(val, forbiddenUrl);
           if (found) return found;
         }
       }
@@ -173,7 +184,7 @@
       infoBox.classList.add("center");
       titleText.textContent = "✅ IP Đã Được Xác Nhận";
       titleText.style.color = "#4ade80";
-      descText.textContent = "Vượt link hoàn tất. Đang chuyển hướng đến link nhận file...";
+      descText.textContent = "Đã vượt link xong. Đang chuyển hướng đến trang nhận file...";
       ipText.textContent = ip;
       statusText.textContent = "Đã xác nhận IP";
       statusText.className = "status-ok";
@@ -226,11 +237,11 @@
 
     async function runStep1Gate() {
       titleText.textContent = "🌐 Kiểm Tra IP & Tạo Link Vượt Link";
-      descText.textContent = "Hệ thống đang kiểm tra IP và tạo link vượt link trỏ về phần nhận file.";
+      descText.textContent = "Xác nhận IP -> Tạo link Traffic so1 trỏ về phần nhận file -> Vượt link xong mới nhận file.";
 
       try {
         if (!/^https?:\/\//i.test(window.location.origin)) {
-          throw new Error("Hãy mở trang qua http:// hoặc https:// (trên web/hosting).");
+          throw new Error("Hãy mở trang qua http:// hoặc https://.");
         }
 
         const ip = await fetchClientIp();
@@ -244,7 +255,7 @@
           return;
         }
 
-        statusText.textContent = "IP hợp lệ — Đang tạo link vượt link...";
+        statusText.textContent = "IP hợp lệ — Đang gọi API tạo link Traffic so1...";
         statusText.className = "status-ok";
 
         const receiveFileUrl = `${window.location.origin}${window.location.pathname}?step=nhanfile&ip=${encodeURIComponent(ip)}&ts=${Date.now()}`;
@@ -257,31 +268,30 @@
         try {
           parsed = JSON.parse(rawText);
         } catch (_) {
-          const match = rawText.match(/https?:\/\/[^\s"'<>]+/);
-          parsed = match ? match[0] : null;
+          parsed = rawText;
         }
 
-        const taskLink = extractCreatedUrl(parsed);
-        if (!taskLink) {
-          statusText.textContent = `Lỗi tạo liên kết (HTTP ${res.status})`;
+        const trafficSo1Link = extractTrafficLink(parsed, receiveFileUrl);
+        if (!trafficSo1Link) {
+          statusText.textContent = `Chưa lấy được link vượt link (HTTP ${res.status})`;
           statusText.className = "status-err";
           detailText.textContent = rawText
-            ? `Phản hồi API: ${rawText.slice(0, 220)}`
-            : "Phản hồi rỗng hoặc bị chặn CORS từ trình duyệt.";
+            ? `Phản hồi từ API: ${rawText.slice(0, 260)}`
+            : "API không trả về link vượt link hoặc bị chặn CORS.";
           return;
         }
 
         saveUsedIp(ip);
-        detailText.textContent = "Đã tạo link vượt link. Đang chuyển hướng...";
-        manualLink.href = taskLink;
-        manualLink.textContent = taskLink;
+        detailText.textContent = "Đã tạo link vượt link. Đang chuyển hướng để vượt link...";
+        manualLink.href = trafficSo1Link;
+        manualLink.textContent = trafficSo1Link;
         manualLink.style.display = "block";
 
-        window.location.href = taskLink;
+        window.location.href = trafficSo1Link;
       } catch (err) {
-        statusText.textContent = "Kiểm tra thất bại";
+        statusText.textContent = "Lỗi gọi API tạo link";
         statusText.className = "status-err";
-        detailText.textContent = err.message || "Có lỗi xảy ra khi gọi API (có thể do CORS).";
+        detailText.textContent = `${err.message || "Lỗi không xác định"} (Nếu bị chặn CORS thì cần gọi API qua server/backend).`;
       }
     }
 
