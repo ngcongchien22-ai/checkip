@@ -91,7 +91,7 @@
     const API_KEY = "cf5e995ca4e04a2e9980c49b1683593b";
     const CREATE_API_BASE = "https://manager.trafficso1.com/api/cong-khai/tao-lien-ket";
 
-    // Đổi thành link file đích sau khi xác nhận IP ở phần nhận file
+    // Đổi thành link file đích sau khi vượt link xong và xác nhận IP ở bước nhận file
     const FILE_DOWNLOAD_URL = "https://example.com/file-cua-ban.zip";
     const REDIRECT_SECONDS = 3;
     const USED_IP_STORAGE_KEY = "trafficso1_used_ips_v1";
@@ -153,7 +153,7 @@
       if (payload && typeof payload === "object") {
         const priorityKeys = [
           "short_url", "shortenedUrl", "short_link", "shortLink",
-          "task_url", "taskUrl", "url", "link", "data", "result"
+          "gtraffic", "task_url", "taskUrl", "url", "link", "data", "result"
         ];
         for (const k of priorityKeys) {
           if (payload[k] !== undefined) {
@@ -169,71 +169,11 @@
       return "";
     }
 
-    function callApiViaJsonp(baseApiUrl, timeoutMs = 8000) {
-      return new Promise((resolve, reject) => {
-        const cbName = "__ts1_cb_" + Date.now() + "_" + Math.floor(Math.random() * 100000);
-        const sep = baseApiUrl.includes("?") ? "&" : "?";
-        const script = document.createElement("script");
-
-        const cleanup = () => {
-          clearTimeout(timer);
-          try { delete window[cbName]; } catch (_) { window[cbName] = undefined; }
-          if (script.parentNode) script.parentNode.removeChild(script);
-        };
-
-        const timer = setTimeout(() => {
-          cleanup();
-          reject(new Error("JSONP timeout"));
-        }, timeoutMs);
-
-        window[cbName] = (data) => {
-          cleanup();
-          resolve(data);
-        };
-
-        script.src = `${baseApiUrl}${sep}callback=${cbName}`;
-        script.onerror = () => {
-          cleanup();
-          reject(new Error("JSONP script error"));
-        };
-        document.body.appendChild(script);
-      });
-    }
-
-    async function createTrafficLink(apiUrl) {
-      try {
-        const res = await fetch(apiUrl, { cache: "no-store" });
-        const rawText = await res.text();
-        let parsed;
-        try {
-          parsed = JSON.parse(rawText);
-        } catch (_) {
-          const match = rawText.match(/https?:\/\/[^\s"'<>]+/);
-          parsed = match ? match[0] : null;
-        }
-        const link = extractCreatedUrl(parsed);
-        if (link) return { ok: true, link };
-        return {
-          ok: false,
-          detail: rawText ? `HTTP ${res.status}: ${rawText.slice(0, 220)}` : `HTTP ${res.status} (rỗng)`
-        };
-      } catch (fetchErr) {
-        try {
-          const jsonpData = await callApiViaJsonp(apiUrl);
-          const link = extractCreatedUrl(jsonpData);
-          if (link) return { ok: true, link };
-          return { ok: false, detail: `JSONP không thấy link: ${JSON.stringify(jsonpData).slice(0, 200)}` };
-        } catch (_) {
-          return { ok: false, detail: `Bị chặn CORS hoặc lỗi mạng (${fetchErr.message || "fetch failed"}).` };
-        }
-      }
-    }
-
     function startFileCountdown(ip) {
       infoBox.classList.add("center");
       titleText.textContent = "✅ IP Đã Được Xác Nhận";
       titleText.style.color = "#4ade80";
-      descText.textContent = "Đang chuẩn bị chuyển hướng đến link file của bạn...";
+      descText.textContent = "Vượt link hoàn tất. Đang chuyển hướng đến link nhận file...";
       ipText.textContent = ip;
       statusText.textContent = "Đã xác nhận IP";
       statusText.className = "status-ok";
@@ -259,7 +199,7 @@
 
     async function runStep2ReceiveFile(passedIp) {
       titleText.textContent = "🔍 Đang Xác Nhận IP Nhận File...";
-      descText.textContent = "Hệ thống đang kiểm tra IP ngay khi bạn truy cập trang nhận file.";
+      descText.textContent = "Hệ thống đang kiểm tra IP ngay khi bạn vào trang nhận file.";
 
       const detectedIp = await fetchClientIp();
       const finalIp = detectedIp || passedIp;
@@ -285,12 +225,12 @@
     }
 
     async function runStep1Gate() {
-      titleText.textContent = "🌐 Kiểm Tra IP & Tạo Link Nhiệm Vụ";
-      descText.textContent = "Hệ thống đang kiểm tra IP của bạn trước khi tạo liên kết Traffic so1 và chuyển hướng.";
+      titleText.textContent = "🌐 Kiểm Tra IP & Tạo Link Vượt Link";
+      descText.textContent = "Hệ thống đang kiểm tra IP và tạo link vượt link trỏ về phần nhận file.";
 
       try {
         if (!/^https?:\/\//i.test(window.location.origin)) {
-          throw new Error("Hãy mở trang qua http:// hoặc https:// (trên hosting/web), không mở trực tiếp file://.");
+          throw new Error("Hãy mở trang qua http:// hoặc https:// (trên web/hosting).");
         }
 
         const ip = await fetchClientIp();
@@ -304,32 +244,44 @@
           return;
         }
 
-        statusText.textContent = "IP hợp lệ — Đang tạo liên kết...";
+        statusText.textContent = "IP hợp lệ — Đang tạo link vượt link...";
         statusText.className = "status-ok";
 
-        // Tự động tạo URL phần nhận file trỏ về chính trang này kèm ?step=nhanfile&ip=...
         const receiveFileUrl = `${window.location.origin}${window.location.pathname}?step=nhanfile&ip=${encodeURIComponent(ip)}&ts=${Date.now()}`;
         const apiUrl = `${CREATE_API_BASE}?apikey=${encodeURIComponent(API_KEY)}&url=${encodeURIComponent(receiveFileUrl)}`;
 
-        const created = await createTrafficLink(apiUrl);
-        if (!created.ok || !created.link) {
-          statusText.textContent = "Lỗi tạo liên kết";
+        const res = await fetch(apiUrl, { cache: "no-store" });
+        const rawText = await res.text();
+
+        let parsed;
+        try {
+          parsed = JSON.parse(rawText);
+        } catch (_) {
+          const match = rawText.match(/https?:\/\/[^\s"'<>]+/);
+          parsed = match ? match[0] : null;
+        }
+
+        const taskLink = extractCreatedUrl(parsed);
+        if (!taskLink) {
+          statusText.textContent = `Lỗi tạo liên kết (HTTP ${res.status})`;
           statusText.className = "status-err";
-          detailText.textContent = created.detail || "Không đọc được link trả về từ API Traffic so1.";
+          detailText.textContent = rawText
+            ? `Phản hồi API: ${rawText.slice(0, 220)}`
+            : "Phản hồi rỗng hoặc bị chặn CORS từ trình duyệt.";
           return;
         }
 
         saveUsedIp(ip);
-        detailText.textContent = "Đã tạo liên kết thành công. Đang chuyển hướng sang Traffic so1...";
-        manualLink.href = created.link;
-        manualLink.textContent = created.link;
+        detailText.textContent = "Đã tạo link vượt link. Đang chuyển hướng...";
+        manualLink.href = taskLink;
+        manualLink.textContent = taskLink;
         manualLink.style.display = "block";
 
-        window.location.href = created.link;
+        window.location.href = taskLink;
       } catch (err) {
         statusText.textContent = "Kiểm tra thất bại";
         statusText.className = "status-err";
-        detailText.textContent = err.message || "Có lỗi xảy ra khi kiểm tra IP.";
+        detailText.textContent = err.message || "Có lỗi xảy ra khi gọi API (có thể do CORS).";
       }
     }
 
