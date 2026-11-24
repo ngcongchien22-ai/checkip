@@ -127,9 +127,10 @@
       ];
       for (const ep of endpoints) {
         try {
-          const res = await fetch(ep, { cache: "no-store" });
+          const res = await fetch(ep, { method: "GET" });
           if (!res.ok) continue;
-          const data = await res.json();
+          const txt = await res.text();
+          const data = JSON.parse(txt);
           if (data && data.ip) return String(data.ip).trim();
         } catch (_) {}
       }
@@ -255,13 +256,20 @@
         statusText.className = "status-ok";
 
         const receiveFileUrl = `${window.location.origin}${window.location.pathname}?step=nhanfile&ip=${encodeURIComponent(ip)}&ts=${Date.now()}`;
-        const proxyUrl = `/api/create-link?url=${encodeURIComponent(receiveFileUrl)}`;
+        const proxyUrl = `./api/create-link?url=${encodeURIComponent(receiveFileUrl)}`;
 
-        const res = await fetch(proxyUrl, { cache: "no-store" });
-        const payload = await res.json();
+        const res = await fetch(proxyUrl, { method: "GET" });
+        const rawProxyText = await res.text();
 
-        if (!res.ok || !payload.ok) {
-          throw new Error(payload.error || `HTTP ${res.status}`);
+        let payload = null;
+        try {
+          payload = JSON.parse(rawProxyText);
+        } catch (_) {
+          throw new Error(rawProxyText.slice(0, 220) || `HTTP ${res.status}`);
+        }
+
+        if (!res.ok || !payload || !payload.ok) {
+          throw new Error((payload && payload.error) || `HTTP ${res.status}`);
         }
 
         const candidateSource = payload.data !== undefined ? payload.data : payload.raw;
