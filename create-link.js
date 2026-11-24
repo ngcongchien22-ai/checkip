@@ -1,6 +1,6 @@
 export default async function handler(req, res) {
   const API_KEY = process.env.TRAFFICSO1_API_KEY || "cf5e995ca4e04a2e9980c49b1683593b";
-  const CREATE_API_BASE = "https://manager.trafficso1.com/api/cong-khai/tao-lien-ket";
+  const CREATE_API_BASE = "https://manager.trafficso1.com/api/cong-khai/tao-lien-ket?apikey=cf5e995ca4e04a2e9980c49b1683593b&url=";
 
   const targetUrl = (req.query.url || "").toString().trim();
   if (!targetUrl || !/^https?:\/\//i.test(targetUrl)) {
